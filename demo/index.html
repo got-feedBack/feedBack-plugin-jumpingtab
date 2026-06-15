@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>jumpingtab demo</title>
+<!--
+  Both font families loaded directly here (not via screen.js's dynamic
+  injection) so the demo harness can deterministically await
+  document.fonts.load before drawing — fonts.load() resolves
+  immediately when the @font-face rules aren't declared yet, so the
+  injection race would silently no-op screenshot generation.
+-->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<!-- data-jumpingtab-fonts marks this as the canonical JetBrains Mono
+     stylesheet so ensureFonts() in screen.js treats its module-load
+     call as a no-op instead of injecting a duplicate <link>. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700;800&display=swap" data-jumpingtab-fonts="1">
+<style>
+  html, body { margin: 0; padding: 0; background: #05070f; }
+  .scene {
+    padding: 32px;
+    display: flex;
+    justify-content: center;
+  }
+  canvas {
+    width: 1280px;
+    height: 420px;
+    background: #0f1420;
+    border-radius: 14px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    display: block;
+  }
+</style>
+</head>
+<body>
+<div class="scene">
+  <canvas id="cnv"></canvas>
+</div>
+<!--
+  Standalone demo harness — loads the plugin's render pipeline with
+  synthetic data so the UI can be captured without running slopsmith.
+  Append ?scene=overview|techniques|fast to the URL to switch scenes.
+  Screenshots committed to screenshots/ were generated from this file
+  via headless Chrome.
+-->
+<script src="../screen.js"></script>
+<script>
+(async function main() {
+  const cnv = document.getElementById('cnv');
+  const demo = window.__jumpingtab_demo;
+  if (!demo) throw new Error('screen.js did not expose __jumpingtab_demo');
+
+  // Both font-family <link>s are in this file's <head>; wait for every
+  // weight the renderer uses so the headless-Chrome screenshot
+  // captures the loaded faces instead of the generic fallback.
+  if (document.fonts && document.fonts.load) {
+    await Promise.all([
+      document.fonts.load('500 12px "JetBrains Mono"'),
+      document.fonts.load('600 12px "JetBrains Mono"'),
+      document.fonts.load('700 12px "JetBrains Mono"'),
+      document.fonts.load('800 14px "JetBrains Mono"'),
+      document.fonts.load('400 12px "Inter"'),
+      document.fonts.load('500 11px "Inter"'),
+      document.fonts.load('600 13px "Inter"'),
+    ]).catch(() => {});
+  }
+
+  const params = new URLSearchParams(location.search);
+  const scene = params.get('scene') || 'overview';
+
+  const tuning = [40, 45, 50, 55, 59, 64];
+  const duration = 240;
+  const sections = [
+    { name: 'Intro',  time: 0 },
+    { name: 'Verse',  time: 14 },
+    { name: 'Chorus', time: 40 },
+    { name: 'Solo',   time: 72 },
+    { name: 'Outro',  time: 180 },
+  ];
+
+  const beats = [];
+  const bpm = 118;
+  const beatDur = 60 / bpm;
+  for (let t = 0; t < duration; t += beatDur) {
+    beats.push({ time: t, measure: (beats.length % 4 === 0) ? Math.floor(beats.length / 4) : -1 });
+  }
+
+  const commonInfo = {
+    title: 'Demo Song',
+    artist: 'Example Artist',
+    duration,
+  };
+
+  function pushNotes(notes) {
+    demo.setState({
+      tuning,
+      notes,
+      beats: beats.filter(b => b.time >= (notes[0].t - 1) && b.time <= (notes[notes.length - 1].t + 2)),
+      sections,
+      songInfo: { ...commonInfo, arrangement: 'Lead' },
+    });
+    demo.finalizeState();
+    demo.setCanvas(cnv);
+  }
+
+  if (scene === 'overview') {
+    const base = 10;
+    const riff = [
+      [0.0, 2, 7], [0.25, 2, 9], [0.5, 2, 7], [0.75, 3, 5],
+      [1.0, 3, 7], [1.25, 2, 7], [1.5, 2, 5], [1.75, 3, 5],
+      [2.0, 3, 7], [2.25, 1, 8], [2.5, 2, 7], [2.75, 1, 8],
+      [3.0, 2, 9], [3.5, 3, 7], [4.0, 2, 7], [4.25, 3, 9],
+      [4.5, 2, 10], [4.75, 3, 7], [5.0, 4, 5], [5.25, 3, 7],
+      [5.5, 2, 9], [5.75, 1, 8], [6.0, 0, 7], [6.5, 1, 5],
+    ];
+    const notes = riff.map(([dt, s, f]) => ({ t: base + dt, s, f, sus: 0, ho: 0, po: 0, sl: -1, bn: 0 }));
+    notes.push({ t: base + 7.0, s: 2, f: 9, sus: 0.8, ho: 0, po: 0, sl: -1, bn: 0 });
+    notes.push({ t: base + 7.0, s: 3, f: 9, sus: 0.8, ho: 0, po: 0, sl: -1, bn: 0 });
+    pushNotes(notes);
+    demo.drawFrame(base + 2.2);
+  }
+
+  if (scene === 'techniques') {
+    const base = 20;
+    const notes = [
+      { t: base + 0.0, s: 3, f: 5, sus: 0, ho: 0, po: 0, sl: -1, bn: 0 },
+      { t: base + 0.3, s: 3, f: 7, sus: 0, ho: 1, po: 0, sl: -1, bn: 0 },
+      { t: base + 0.6, s: 3, f: 5, sus: 0, ho: 0, po: 1, sl: -1, bn: 0 },
+      { t: base + 1.0, s: 2, f: 7, sus: 0, ho: 0, po: 0, sl: -1, bn: 0 },
+      { t: base + 1.3, s: 2, f: 9, sus: 0, ho: 1, po: 0, sl: -1, bn: 0 },
+      { t: base + 1.8, s: 2, f: 7, sus: 0.4, ho: 0, po: 0, sl: -1, bn: 1 },
+      { t: base + 2.4, s: 1, f: 8, sus: 0, ho: 0, po: 0, sl: -1, bn: 0.5 },
+      { t: base + 2.8, s: 1, f: 10, sus: 0, ho: 0, po: 0, sl: -1, bn: 0 },
+      { t: base + 3.2, s: 2, f: 9, sus: 0, ho: 0, po: 0, sl: -1, bn: 1.5 },
+      { t: base + 3.6, s: 3, f: 7, sus: 0, ho: 0, po: 0, sl: -1, bn: 0 },
+      { t: base + 4.0, s: 3, f: 5, sus: 0, ho: 0, po: 1, sl: -1, bn: 0 },
+      { t: base + 4.8, s: 0, f: 3, sus: 1.0, ho: 0, po: 0, sl: -1, bn: 0 },
+      { t: base + 4.8, s: 1, f: 3, sus: 1.0, ho: 0, po: 0, sl: -1, bn: 0 },
+      { t: base + 4.8, s: 2, f: 4, sus: 1.0, ho: 0, po: 0, sl: -1, bn: 0 },
+      { t: base + 4.8, s: 3, f: 5, sus: 1.0, ho: 0, po: 0, sl: -1, bn: 0 },
+    ];
+    pushNotes(notes);
+    demo.drawFrame(base + 1.6);
+  }
+
+  if (scene === 'fast') {
+    const base = 60;
+    const noteDur = 60 / 120 / 4;
+    const pattern = [
+      [2, 7], [2, 9], [2, 10], [2, 12],
+      [3, 12], [3, 10], [3, 9], [3, 7],
+      [4, 7], [4, 9], [4, 10], [4, 12],
+      [3, 12], [3, 10], [3, 9], [3, 7],
+    ];
+    const notes = [];
+    for (let i = 0; i < 32; i++) {
+      const [s, f] = pattern[i % pattern.length];
+      notes.push({ t: base + i * noteDur, s, f, sus: 0, ho: 0, po: 0, sl: -1, bn: 0 });
+    }
+    pushNotes(notes);
+    demo.drawFrame(base + 0.8);
+  }
+})().catch(err => {
+  // Surface init failures (missing __jumpingtab_demo, getContext null,
+  // etc.) on stderr so headless screenshot runs fail loudly instead of
+  // silently producing a blank frame via an unhandled rejection.
+  console.error('[jumpingtab demo]', err);
+});
+</script>
+</body>
+</html>
