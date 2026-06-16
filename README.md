@@ -6,7 +6,7 @@ A [slopsmith](https://github.com/byrongamatos/slopsmith) plugin that adds a Yous
 
 ## Features
 
-- **2D horizontal tab** — notes scroll right→left on color-coded string lines, player view (low E on top), Rocksmith-aligned color palette.
+- **2D horizontal tab** — notes scroll right→left on color-coded string lines, player view (low E on top), the chart-aligned color palette.
 - **Chord-shape diagrams** — a secondary canvas above the tab renders the active chord shape (open / muted / fingered strings, fret numbers, finger numbers, position label) and queues upcoming distinct chord shapes scrolling toward the hit line. Distinguishes consecutive identical chords so a held shape doesn't draw N times. *(Originally contributed by [alleexx](https://github.com/alleexx) on the [renanboni fork](https://github.com/renanboni/slopsmith-plugin-jumpingtab).)*
 - **Trajectory arcs** — dashed cyan curves connect every consecutive note group (chords included) so you can see the melodic contour.
 - **Hopping ball** — a glowing ball traces the melody and squashes when it crosses the hit line.
@@ -63,7 +63,7 @@ Arrangement changes (Lead → Rhythm → Bass via the player dropdown) and diffi
 
 The current visual identity merges contributions from multiple authors:
 
-- **alleexx** ([renanboni fork](https://github.com/renanboni/slopsmith-plugin-jumpingtab)): chord-box rendering, Rocksmith-aligned string color palette (string 0 = pink, string 1 = yellow, string 2 = cyan, etc.), and reduced hit-line glow (`DISABLE_RINGS = true` opts out of the expanding-ring animation that was visually busy in dense passages).
+- **alleexx** ([renanboni fork](https://github.com/renanboni/slopsmith-plugin-jumpingtab)): chord-box rendering, the chart-aligned string color palette (string 0 = pink, string 1 = yellow, string 2 = cyan, etc.), and reduced hit-line glow (`DISABLE_RINGS = true` opts out of the expanding-ring animation that was visually busy in dense passages).
 - **byrongamatos**: setRenderer + Wave C per-instance architecture, technique capsules, bend indicators, trajectory hopping ball, dynamic string count.
 - **topkoa**: contributed the original splitscreen-pane factory in the renanboni fork; superseded by Wave C's per-panel viz picker which made a separate pane contract unnecessary.
 - **rymarshall**: contributed a WebSocket URL encoding fix in the renanboni fork; obsoleted by the setRenderer migration which moved WebSocket ownership to slopsmith core.

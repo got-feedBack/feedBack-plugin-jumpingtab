@@ -125,7 +125,7 @@
     }
 
     // Per-string colors. Order matches renanboni's
-    // Rocksmith-aligned palette — string 0 (high E) is pink, string
+    // the chart-aligned palette — string 0 (high E) is pink, string
     // 1 (B) is yellow, string 2 (G) is cyan, etc. — instead of
     // byrongamatos's earlier order. Extended-range positions 6 / 7
     // (7-string / 8-string guitars from GP imports) are added on
@@ -1331,7 +1331,7 @@
     // to 6 (the canonical guitar count).
     //
     // The previous heuristic `state.tuning.length === 4 ? 4 : 6`
-    // was broken for RS-XML-sourced bass — RS XML always emits
+    // was broken for arrangement XML-sourced bass — arrangement XML always emits
     // length 6 regardless of instrument, so bass got rendered as
     // 6 strings with the upper 2 empty. The new server-side
     // signal handles all sources uniformly.
