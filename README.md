@@ -1,6 +1,6 @@
 # Jumping Tab
 
-A [slopsmith](https://github.com/byrongamatos/slopsmith) plugin that adds a Yousician-style 2D horizontal tab view to the player. Notes flow right-to-left toward a glowing hit line, trajectory arcs connect consecutive monophonic notes, a glowing ball visibly hops along those arcs, and chord-shape diagrams scroll along a secondary canvas above the tab.
+A [slopsmith](https://github.com/got-feedback/feedback) plugin that adds a Yousician-style 2D horizontal tab view to the player. Notes flow right-to-left toward a glowing hit line, trajectory arcs connect consecutive monophonic notes, a glowing ball visibly hops along those arcs, and chord-shape diagrams scroll along a secondary canvas above the tab.
 
 ![Chord boxes + tab view](screenshots/jumpingtab_w_chords.png)
 
