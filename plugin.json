@@ -3,5 +3,8 @@
   "name": "Jumping Tab",
   "version": "3.0.0",
   "type": "visualization",
-  "script": "screen.js"
+  "script": "screen.js",
+  "category": "practice",
+  "description": "Jumping tab-style notation view.",
+  "icon": "assets/thumb.svg"
 }
