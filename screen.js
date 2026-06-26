@@ -1955,6 +1955,8 @@
     }
 
     window.slopsmithViz_jumpingtab = createFactory;
+    // slopsmith→feedBack rename: host viz picker looks up `window.feedBackViz_<id>`.
+    window.feedBackViz_jumpingtab = window.slopsmithViz_jumpingtab;
 
     // ensureFonts() runs inside init() rather than at module scope so
     // we don't make an unconditional fonts.googleapis.com request when
