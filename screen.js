@@ -57,6 +57,14 @@
     const HEADER_H = 36;
     const MIN_NOTE_R = 6;
 
+    // ── Top-left chord-diagram box (ported verbatim from the 3D
+    // Highway plugin's drawChordDiagram, feedBack-plugin-highway-3d).
+    // Responsive sizing constants: the diagram cell size is derived
+    // from panel height * a size fraction, then hard-capped.
+    const DIAG_SIZE_MIN = 0.08;
+    const DIAG_SIZE_MAX = 0.16;
+    const DIAG_CELL_MAX = 34;
+
     // ── Typography (slopsmith#376) ───────────────────────────
     // One sans stack (matches slopsmith core's Inter) for prose and
     // one mono stack (JetBrains Mono) for every digit / label. The
@@ -345,10 +353,10 @@
             tuning: null,
             // Chord events (with .t and .id referencing into
             // chordTemplates) — populated each frame from
-            // bundle.chords. The chord-box renderer
-            // (drawChordBoxes) reads these directly; the existing
-            // note-tab renderer flattens chords into state.notes
-            // via _rebuildChart so it doesn't need them.
+            // bundle.chords. The top-left chord-diagram box reads
+            // these directly (to find the current chord); the note-
+            // tab renderer flattens chords into state.notes via
+            // _rebuildChart so it doesn't need them.
             chords: [],
             // Chord-template lookup table (slopsmith#92) — index
             // by chord.id to get { name, fingers, frets }. Read-
@@ -1093,236 +1101,6 @@
         ctx.closePath();
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // Chord-box rendering (alleexx's contribution from renanboni's fork —
-    // ported into the per-instance factory shape so it renders on a
-    // separate chordCtx + chordCanvas owned by each factory instance).
-    //
-    // Reads only `state.chords` and `state.chordTemplates` (both already
-    // populated from the setRenderer bundle, slopsmith#92), plus the
-    // active `now` time and the resolved `nStrings`. No module-scope
-    // state, no own WebSocket — fits cleanly into Wave C's
-    // (ctx, state, ...) draw-helper pattern.
-    // ═══════════════════════════════════════════════════════════════════════
-
-    function drawChordBoxes(chordCtx, chordCanvas, state, nStrings, now) {
-        if (!chordCtx || !chordCanvas) return;
-        if (!state.ready || !state.chords || !state.chords.length) return;
-        if (!state.chordTemplates || !state.chordTemplates.length) return;
-
-        const W = chordCanvas.clientWidth;
-        const H = chordCanvas.clientHeight;
-        if (W === 0 || H === 0) return;
-
-        // Clear and paint the chord canvas's background. The chord
-        // canvas is independent of the note canvas — its own clear
-        // matters even though the note canvas does its own.
-        // Use CSS-pixel dimensions (W, H) after setTransform(dpr, …)
-        // so the clear covers exactly the visible area, not the
-        // over-sized device-pixel backing store.
-        chordCtx.clearRect(0, 0, W, H);
-        chordCtx.fillStyle = 'rgba(6, 10, 18, 0.96)';
-        chordCtx.fillRect(0, 0, W, H);
-
-        const hitX = W * HIT_LINE_FRAC;
-        const tMin = now - BEHIND;
-        const tMax = now + AHEAD;
-
-        // Visible chord events in [tMin, tMax]. state.chords is sorted
-        // by t (slopsmith core guarantees) so an early break is safe
-        // once we pass tMax.
-        const visible = [];
-        for (const ch of state.chords) {
-            if (ch.t < tMin) continue;
-            if (ch.t > tMax) break;
-            visible.push(ch);
-        }
-        if (!visible.length) return;
-
-        // Deduplicate consecutive chords with the same name — when a
-        // single chord shape is held across multiple chord events
-        // (rhythm playing the same shape on each downbeat), we don't
-        // want a wall of identical boxes.
-        const unique = [];
-        let lastChordName = null;
-        for (const ch of visible) {
-            const template = state.chordTemplates[ch.id];
-            const chordName = (template && template.name) || `Chord ${ch.id}`;
-            if (chordName !== lastChordName) {
-                unique.push(ch);
-                lastChordName = chordName;
-            }
-        }
-        if (!unique.length) return;
-
-        const diagWidth = 140;
-        const diagHeight = 140;
-        const boxPadding = 24;
-
-        // The active chord is the most recent one whose t <= now.
-        // Pinned to the hit line; other chords float at their own
-        // timeX position.
-        let activeIndex = -1;
-        for (let i = 0; i < unique.length; i++) {
-            if (unique[i].t <= now) activeIndex = i;
-            else break;
-        }
-        if (activeIndex < 0) activeIndex = 0;
-        const activeChord = unique[activeIndex];
-        const otherChords = unique.filter((_, idx) => idx !== activeIndex).reverse();
-
-        const renderChordBox = (ch, isCurrent) => {
-            const x = isCurrent ? hitX : timeX(ch.t, now, W);
-            if (x < -diagWidth - boxPadding) return;
-            if (x > W + boxPadding) return;
-
-            const template = state.chordTemplates[ch.id] || null;
-            if (!template) return;
-
-            const chordName = template.name || `Chord ${ch.id}`;
-            const frets = template.frets || [];
-            const fingers = template.fingers || [];
-
-            const playedFrets = frets.filter(f => typeof f === 'number' && f > 0);
-            const minFret = playedFrets.length > 0 ? Math.min(...playedFrets) : 1;
-            const maxFret = playedFrets.length > 0 ? Math.max(...playedFrets) : 1;
-
-            // Skip "Chord N" placeholder names and templates whose
-            // frets are all muted — they're not useful as chord-shape
-            // diagrams. Fret 0 means open string (rendered as ○ below),
-            // so a chord of all open strings is valid and must not be
-            // skipped here.
-            if (chordName.startsWith('Chord ') ||
-                frets.every(f => f === -1 || f === null || f === undefined)) {
-                return;
-            }
-
-            const stringCount = Math.min(nStrings, Math.max(4, frets.length));
-
-            const boxLeft = x - diagWidth / 2;
-            const boxTop = 12;
-
-            const dt = now - ch.t;
-            const fadeOutAfter = 0.22;  // seconds after hit line before disappearing
-            if (!isCurrent && (dt >= fadeOutAfter || boxLeft <= 0)) {
-                return;
-            }
-
-            // Approach factor 0..1 — used to fade non-active boxes
-            // up as they near the hit line and out as they pass.
-            const approach = dt < 0
-                ? 1 - Math.min(-dt, AHEAD) / AHEAD
-                : Math.max(0, 1 - Math.min(dt, BEHIND) / BEHIND);
-
-            const fillColor = isCurrent ? 'rgba(20, 30, 45, 1)' : 'rgba(18, 24, 34, 1)';
-            const strokeColor = isCurrent
-                ? 'rgba(110, 231, 255, 0.45)'
-                : `rgba(140, 180, 230, ${0.18 + 0.2 * approach})`;
-            const textColor = isCurrent
-                ? '#ffffff'
-                : `rgba(210, 220, 230, ${0.82 + 0.18 * approach})`;
-
-            chordCtx.save();
-            chordCtx.fillStyle = fillColor;
-            roundRect(chordCtx, boxLeft - 8, boxTop - 8, diagWidth + 16, H - 16, 12);
-            chordCtx.fill();
-
-            chordCtx.strokeStyle = strokeColor;
-            chordCtx.lineWidth = isCurrent ? 2 : 1.4;
-            chordCtx.stroke();
-
-            chordCtx.fillStyle = textColor;
-            chordCtx.font = `${isCurrent ? '700 ' : '500 '}14px ${MONO_STACK}`;
-            chordCtx.textAlign = 'center';
-            chordCtx.textBaseline = 'top';
-            const displayName = minFret > 1 && maxFret > 5 ? `${chordName} (${minFret}fr)` : chordName;
-            chordCtx.fillText(displayName, x, boxTop + 10);
-
-            const diagY = boxTop + 40;
-            const stringSpacing = diagWidth / Math.max(1, stringCount - 1);
-            const fretSpacing = diagHeight / 5;
-            const nutY = diagY;
-
-            chordCtx.strokeStyle = 'rgba(200, 220, 255, 0.5)';
-            chordCtx.lineWidth = 2;
-            for (let i = 0; i < stringCount; i++) {
-                const sx = x - diagWidth / 2 + i * stringSpacing;
-                chordCtx.beginPath();
-                chordCtx.moveTo(sx, nutY);
-                chordCtx.lineTo(sx, nutY + diagHeight);
-                chordCtx.stroke();
-            }
-
-            chordCtx.strokeStyle = 'rgba(180, 200, 240, 0.25)';
-            chordCtx.lineWidth = 1;
-            for (let f = 0; f <= 5; f++) {
-                const fy = nutY + f * fretSpacing;
-                chordCtx.beginPath();
-                chordCtx.moveTo(x - diagWidth / 2, fy);
-                chordCtx.lineTo(x + diagWidth / 2, fy);
-                chordCtx.stroke();
-            }
-
-            // Nut line (top of the diagram)
-            chordCtx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-            chordCtx.lineWidth = 3;
-            chordCtx.beginPath();
-            chordCtx.moveTo(x - diagWidth / 2, nutY);
-            chordCtx.lineTo(x + diagWidth / 2, nutY);
-            chordCtx.stroke();
-
-            for (let i = 0; i < stringCount; i++) {
-                const sx = x - diagWidth / 2 + i * stringSpacing;
-                const fret = frets[i];
-                const finger = fingers[i];
-                const topY = nutY - 6;
-
-                let relativeFret = null;
-                if (typeof fret === 'number' && fret > 0) {
-                    relativeFret = fret - minFret + 1;
-                }
-
-                chordCtx.textAlign = 'center';
-                chordCtx.textBaseline = 'middle';
-
-                if (fret === 0) {
-                    chordCtx.fillStyle = '#ffffff';
-                    chordCtx.font = '700 16px ' + MONO_STACK;
-                    chordCtx.fillText('○', sx, topY);
-                } else if (fret === -1 || fret === null || fret === undefined) {
-                    chordCtx.fillStyle = '#ff6b8b';
-                    chordCtx.font = '700 20px ' + MONO_STACK;
-                    chordCtx.fillText('×', sx, topY);
-                }
-
-                if (relativeFret !== null && relativeFret <= 5) {
-                    const fretY = nutY + relativeFret * fretSpacing - fretSpacing / 2;
-                    chordCtx.fillStyle = 'rgba(110, 231, 255, 0.95)';
-                    chordCtx.beginPath();
-                    chordCtx.arc(sx, fretY, 10, 0, Math.PI * 2);
-                    chordCtx.fill();
-                    chordCtx.fillStyle = '#08101c';
-                    chordCtx.font = '800 12px ' + MONO_STACK;
-                    chordCtx.fillText(String(relativeFret), sx, fretY);
-                }
-
-                if (typeof finger === 'number' && finger >= 0) {
-                    chordCtx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-                    chordCtx.font = '600 11px ' + MONO_STACK;
-                    chordCtx.fillText(String(finger), sx, nutY + diagHeight + 16);
-                }
-            }
-            chordCtx.restore();
-        };
-
-        // Render non-active boxes first (back-to-front so the active
-        // pinned box is always on top).
-        for (const ch of otherChords) {
-            renderChordBox(ch, false);
-        }
-        renderChordBox(activeChord, true);
-    }
-
     // Resolve active string count from a plugin state object.
     // Prefer state.stringCount (populated from bundle.stringCount,
     // slopsmith#93) — the reliable signal computed server-side.
@@ -1336,12 +1114,351 @@
     // 6 strings with the upper 2 empty. The new server-side
     // signal handles all sources uniformly.
     //
-    // Used by both drawFrame and the draw() call-site that feeds
-    // drawChordBoxes so the two render paths can never drift.
+    // Used by drawFrame for both the tab layout and the top-left
+    // chord-diagram box so the two never drift on string count.
     function resolveStringCount(state) {
         return (typeof state.stringCount === 'number' && state.stringCount > 0)
             ? state.stringCount
             : (state.tuning && state.tuning.length > 0 ? state.tuning.length : 6);
+    }
+
+    // ── Top-left chord-diagram box ──────────────────────────────────
+    // Ported verbatim from the 3D Highway plugin (feedBack-plugin-
+    // highway-3d, drawChordDiagram) so the box reads identically in
+    // both views. Pure 2D-canvas, no external deps — feed it the
+    // current chord's { name, frets } plus canvas dimensions.
+
+    // Prefer the authored display name, fall back to the raw template
+    // name. Matches highway-3d's chordTemplateLabel.
+    function chordTemplateLabel(tmpl) {
+        if (!tmpl) return '';
+        const d = tmpl.displayName;
+        if (typeof d === 'string' && d.length > 0) return d;
+        const n = tmpl.name;
+        return typeof n === 'string' ? n : '';
+    }
+
+    // Longest run of consecutive integers in a sorted array — barre
+    // detection helper for drawChordDiagram.
+    function longestConsecutiveRun(sorted) {
+        let bestStart = -1, bestLen = 0;
+        let curStart = -1, curLen = 0;
+        for (let i = 0; i < sorted.length; i++) {
+            if (curLen === 0 || sorted[i] === sorted[curStart + curLen - 1] + 1) {
+                if (curLen === 0) curStart = i;
+                curLen++;
+            } else {
+                if (curLen > bestLen) { bestLen = curLen; bestStart = curStart; }
+                curStart = i; curLen = 1;
+            }
+        }
+        if (curLen > bestLen) { bestLen = curLen; bestStart = curStart; }
+        return { start: bestStart, len: bestLen };
+    }
+
+    function drawChordDiagram(ctx, opts) {
+        const {
+            name, frets,
+            opacity = 1,
+            entranceT = 1.0,
+            canvasW = 600, canvasH = 400,
+            inverted = false,
+            sizeSlider = 0.5,
+            position = 'tl',
+            nStr = 6,
+            lyricsBottom = 0,
+            stackOffset = 0,
+        } = opts;
+
+        // Responsive sizing — CELL derived from panel height + user slider.
+        // COLS is the resolved string count from the caller (via resolveStringCount)
+        // so bass (4), extended (7/8) arrangements render correctly.
+        const COLS = nStr, ROWS = 4;
+        // Minimum column span required for PATH B (bracket extension / detection).
+        const MIN_BARRE_SPAN = Math.min(COLS - 1, 4);
+        // Maps diagram column index → chord-template frets-array index.
+        // Templates are high-e-first: frets[0]=high e, frets[COLS-1]=low E.
+        const getStrIdx = col => inverted ? (COLS - 1 - col) : col;
+        const sizeF  = DIAG_SIZE_MIN + (DIAG_SIZE_MAX - DIAG_SIZE_MIN) * sizeSlider;
+
+        // startFret / isFirstPos must be known before CELL so that fretLabelW
+        // can be measured and factored into the width cap.
+        const playedFrets = frets.filter(f => f > 0);
+        const minFret     = playedFrets.length > 0 ? Math.min(...playedFrets) : 1;
+        const startFret   = Math.max(1, minFret);
+        const isFirstPos  = startFret === 1;
+
+        // Phase 1 — height + hard-cap estimate, used only to size the label font.
+        // Only top-corner positions can overlap the lyrics banner, so lyricsBottom
+        // is only subtracted when position is 'tl' or 'tr'.
+        const isTopCorner = position === 'tl' || position === 'tr';
+        const availH  = canvasH - (isTopCorner ? lyricsBottom : 0);
+        const cellEst = Math.max(1, Math.min(
+            Math.round(availH * sizeF / (ROWS + 3)),
+            DIAG_CELL_MAX,
+        ));
+        // Extra left padding for the "Nfr" label on non-first-position chords.
+        let fretLabelW = 0;
+        if (!isFirstPos) {
+            ctx.save();
+            ctx.font = `italic ${Math.round(cellEst * 0.55)}px sans-serif`;
+            fretLabelW = Math.ceil(ctx.measureText(startFret + 'fr').width) + 6;
+            ctx.restore();
+        }
+
+        // Phase 2 — final CELL: cap against panel height, hard max, and panel width.
+        const CELL   = Math.max(1, Math.min(
+            cellEst,
+            Math.floor((canvasW - fretLabelW) / (COLS + 0.3)),
+            Math.floor((canvasW - 2 * 6 - fretLabelW) / Math.max(1, COLS - 1)),
+        ));
+        const HEADER = Math.round(CELL * 1.6);
+        const MARKER = Math.round(CELL * 0.7);
+        const DOT_R  = CELL * 0.3;
+        const PAD    = Math.max(6, Math.round(CELL * 0.65));
+        const gridW  = CELL * (COLS - 1);
+        const gridH  = CELL * ROWS;
+
+        const PAD_L  = PAD + fretLabelW;
+
+        const boxW   = gridW + PAD_L + PAD;
+        const boxH   = HEADER + MARKER + gridH + PAD;
+
+        // Anchor to chosen corner. Top positions get extra vertical offset
+        // to clear the timeline plugin and song name displayed at the top.
+        const E    = PAD;
+        const TOP_Y = Math.round(Math.max(E + canvasH * 0.06, lyricsBottom + E));
+        let bx, by;
+        if      (position === 'tr') { bx = canvasW - boxW - E; by = TOP_Y + stackOffset; }
+        else if (position === 'bl') { bx = E; by = canvasH - boxH - E - stackOffset; }
+        else if (position === 'br') { bx = canvasW - boxW - E; by = canvasH - boxH - E - stackOffset; }
+        else                        { bx = E; by = TOP_Y + stackOffset; }
+
+        // Clamp so the box never bleeds off-canvas on narrow panels or wide string counts.
+        bx = Math.max(0, Math.min(canvasW - boxW, bx));
+        by = Math.max(0, Math.min(canvasH - boxH, by));
+
+        // Guard: skip drawing rather than paint on top of the lyrics banner.
+        if (lyricsBottom > 0 && by < lyricsBottom) return 0;
+
+        const gx = bx + PAD_L, gy = by + HEADER + MARKER;
+
+        // Ease-out quadratic entrance scale: 0.85 → 1.0.
+        const scale = 1 - 0.15 * (1 - entranceT) * (1 - entranceT);
+
+        ctx.save();
+        ctx.globalAlpha = opacity;
+
+        if (scale !== 1.0) {
+            const cx = bx + boxW / 2, cy = by + boxH / 2;
+            ctx.translate(cx, cy);
+            ctx.scale(scale, scale);
+            ctx.translate(-cx, -cy);
+        }
+
+        // Background + border. Route through the guarded roundRect helper
+        // (some 2D contexts lack native ctx.roundRect) — this plugin's
+        // convention, unlike the highway's unguarded native call.
+        ctx.fillStyle = 'rgba(8, 14, 22, 0.88)';
+        if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 7); }
+        else { roundRect(ctx, bx, by, boxW, boxH, 7); }
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
+        if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 7); }
+        else { roundRect(ctx, bx, by, boxW, boxH, 7); }
+        ctx.stroke();
+
+        // Split-root typography: "Dm7" → "D" large bold + "m7" smaller.
+        const rootMatch = name.match(/^([A-G][#b]?)(.*)/);
+        const root    = rootMatch ? rootMatch[1] : name;
+        const quality = rootMatch ? rootMatch[2] : '';
+        const rootSize = Math.round(CELL * 1.25);
+        const qualSize = Math.round(rootSize * 0.65);
+        ctx.textBaseline = 'middle';
+        const nameY = by + HEADER * 0.55;
+        ctx.font = `bold ${rootSize}px sans-serif`;
+        const rootW = ctx.measureText(root).width;
+        ctx.font = `${qualSize}px sans-serif`;
+        const qualW = quality ? ctx.measureText(quality).width : 0;
+        const nameBlockW = rootW + (quality ? qualW + 2 : 0);
+        const nameStartX = bx + boxW / 2 - nameBlockW / 2;
+        ctx.fillStyle = '#e8d080';
+        ctx.font = `bold ${rootSize}px sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.fillText(root, nameStartX, nameY);
+        if (quality) {
+            ctx.font = `${qualSize}px sans-serif`;
+            ctx.fillStyle = 'rgba(232,208,128,0.75)';
+            ctx.fillText(quality, nameStartX + rootW + 2, nameY);
+        }
+
+        // Nut: CELL-proportional filled rect + subtle highlight line.
+        const NUT_H = Math.round(Math.max(2, CELL * 0.4));
+        if (isFirstPos) {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(gx, gy - NUT_H, gridW, NUT_H);
+            ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            ctx.fillRect(gx, gy - NUT_H, gridW, Math.max(1, Math.round(NUT_H * 0.25)));
+        }
+
+        // Fret label for non-first-position chords.
+        if (!isFirstPos) {
+            ctx.fillStyle = 'rgba(220,200,120,0.9)';
+            ctx.font = `italic ${Math.round(CELL * 0.55)}px sans-serif`;
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(startFret + 'fr', gx - 4, gy + CELL * 0.5);
+        }
+
+        // Fret lines.
+        ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 1;
+        for (let r = (isFirstPos ? 1 : 0); r <= ROWS; r++) {
+            ctx.beginPath();
+            ctx.moveTo(gx, gy + r * CELL);
+            ctx.lineTo(gx + gridW, gy + r * CELL);
+            ctx.stroke();
+        }
+
+        // String lines with varying weight: low E heavier, high e lighter.
+        for (let col = 0; col < COLS; col++) {
+            const strIdx = getStrIdx(col);
+            const t = COLS > 1 ? strIdx / (COLS - 1) : 1;  // 1=low E (thick), 0=high e (thin); guard COLS=1
+            ctx.lineWidth = Math.max(0.5, CELL * (0.05 + t * 0.10));
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            ctx.beginPath();
+            ctx.moveTo(gx + col * CELL, gy);
+            ctx.lineTo(gx + col * CELL, gy + ROWS * CELL);
+            ctx.stroke();
+        }
+
+        // Barre detection — two complementary paths (PATH A: adjacent mini-barre,
+        // PATH B: full-span / outer-edge barre). Templates are high-e-first.
+        const startFretCols = [];
+        for (let col = 0; col < COLS; col++) {
+            if (frets[getStrIdx(col)] === startFret) startFretCols.push(col);
+        }
+        const barreRun = longestConsecutiveRun(startFretCols);
+        let hasBarreArc = barreRun.len >= 2;   // PATH A
+        let barreMinCol = hasBarreArc ? startFretCols[barreRun.start] : -1;
+        let barreMaxCol = hasBarreArc ? startFretCols[barreRun.start + barreRun.len - 1] : -1;
+
+        if (startFretCols.length >= 2) {             // PATH B
+            const minC = startFretCols[0];
+            const maxC = startFretCols[startFretCols.length - 1];
+            if (maxC - minC >= MIN_BARRE_SPAN) {
+                let allFretted = true;
+                for (let col = minC; col <= maxC; col++) {
+                    if (frets[getStrIdx(col)] <= 0) { allFretted = false; break; }
+                }
+                if (allFretted) {
+                    if (hasBarreArc) {
+                        barreMinCol = minC;
+                        barreMaxCol = maxC;
+                    } else {
+                        let noInnerAtStartFret = true;
+                        for (let col = minC + 1; col < maxC; col++) {
+                            if (frets[getStrIdx(col)] === startFret) { noInnerAtStartFret = false; break; }
+                        }
+                        if (noInnerAtStartFret) {
+                            hasBarreArc = true;
+                            barreMinCol = minC;
+                            barreMaxCol = maxC;
+                        }
+                    }
+                }
+            }
+        }
+        if (hasBarreArc) {
+            const barreY   = gy + CELL * 0.5;
+            const capH     = CELL * 0.22;  // vertical offset from barreY to the bracket line
+            const capHalf  = Math.max(1, Math.round(CELL * 0.3)); // half-height of the vertical end caps
+            ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = Math.max(1, CELL * 0.2);
+            ctx.beginPath();
+            ctx.moveTo(gx + barreMinCol * CELL, barreY - capH);
+            ctx.lineTo(gx + barreMaxCol * CELL, barreY - capH);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(gx + barreMinCol * CELL, barreY - capH - capHalf);
+            ctx.lineTo(gx + barreMinCol * CELL, barreY - capH + capHalf);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(gx + barreMaxCol * CELL, barreY - capH - capHalf);
+            ctx.lineTo(gx + barreMaxCol * CELL, barreY - capH + capHalf);
+            ctx.stroke();
+        }
+
+        // Open/muted markers + finger dots.
+        for (let col = 0; col < COLS; col++) {
+            const f = frets[getStrIdx(col)];
+            const sx = gx + col * CELL;
+            const markerY = gy - MARKER * 0.5;
+            if (f < 0) {
+                const r = CELL * 0.20;
+                ctx.strokeStyle = '#cc4444'; ctx.lineWidth = 1.5;
+                ctx.beginPath(); ctx.moveTo(sx - r, markerY - r); ctx.lineTo(sx + r, markerY + r); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(sx + r, markerY - r); ctx.lineTo(sx - r, markerY + r); ctx.stroke();
+            } else if (f === 0) {
+                ctx.strokeStyle = '#88bbff'; ctx.lineWidth = 1.5;
+                ctx.beginPath(); ctx.arc(sx, markerY, CELL * 0.22, 0, Math.PI * 2); ctx.stroke();
+            } else {
+                const row = f - startFret;
+                if (row >= 0 && row < ROWS) {
+                    const isBarreCol = hasBarreArc && f === startFret &&
+                                       col >= barreMinCol && col <= barreMaxCol;
+                    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                    ctx.shadowBlur = Math.min(4, CELL * 0.4);
+                    ctx.shadowOffsetX = Math.max(0.5, CELL * 0.1);
+                    ctx.shadowOffsetY = Math.max(0.5, CELL * 0.1);
+                    ctx.fillStyle = isBarreCol ? 'rgba(255,255,255,0.85)' : '#ffffff';
+                    ctx.beginPath();
+                    ctx.arc(sx, gy + row * CELL + CELL * 0.5, DOT_R, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
+                    ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+                }
+            }
+        }
+        ctx.restore();
+        return boxH;
+    }
+
+    // Draw the current chord's fingering as a compact top-left box on the
+    // note canvas (matches the 3D Highway). The current chord is the most
+    // recent chord event whose t <= now (state.chords is core-sorted by t);
+    // placeholder ("Chord N") and all-muted templates are skipped, same
+    // guard the old chord band used.
+    function drawCurrentChordBox(ctx, state, W, H, now) {
+        // Gate on state.ready like every other draw helper — during a
+        // song-change loading window the tab is blank (note helpers bail on
+        // !ready); without this the box would float over an empty tab.
+        if (!state.ready) return;
+        if (!state.chords || !state.chords.length) return;
+        if (!state.chordTemplates || !state.chordTemplates.length) return;
+        let cur = null;
+        for (const ch of state.chords) {
+            if (ch.t <= now) cur = ch; else break;
+        }
+        if (!cur) return;
+        const tmpl = state.chordTemplates[cur.id];
+        if (!tmpl || !Array.isArray(tmpl.frets) || !tmpl.frets.length) return;
+        const name = chordTemplateLabel(tmpl);
+        if (!name || name.startsWith('Chord ')) return;
+        if (tmpl.frets.every(f => f === -1 || f === null || f === undefined)) return;
+        drawChordDiagram(ctx, {
+            name,
+            frets: tmpl.frets,
+            // Column count comes from the template itself (frets[i] = string i,
+            // low-E-first) so a template shorter/longer than the resolved
+            // instrument string count never indexes past the frets array.
+            nStr: tmpl.frets.length,
+            inverted: false,      // frets are low-E-first → low E on the left (standard chart), matches highway
+            position: 'tl',
+            sizeSlider: 0.5,
+            canvasW: W,
+            canvasH: H,
+            lyricsBottom: HEADER_H, // clear jumpingtab's title/artist strip
+            stackOffset: 0,
+        });
     }
 
     function drawFrame(ctx, state, canvas, now) {
@@ -1366,6 +1483,8 @@
         drawEdgeFade(ctx, W, H);
         drawHeader(ctx, state, W, H, now);
         drawProgress(ctx, state, W, H, now);
+        // Current-chord fingering box, top-left (ported from 3D Highway).
+        drawCurrentChordBox(ctx, state, W, H, now);
     }
 
     // ── Pure-helper exports for the test harness ────────────────────
@@ -1506,14 +1625,6 @@
         let canvas = null;
         let wrap = null;
         let ctx = null;
-        // Secondary canvas for chord-box rendering (alleexx's
-        // contribution from renanboni's fork). Lives in the same
-        // wrap as the note canvas with flex layout — chord canvas
-        // takes the top ~35% of the wrap, note canvas the bottom
-        // ~65%. Both per-instance so N splitscreen panels each
-        // have their own chord-box surface.
-        let chordCanvas = null;
-        let chordCtx = null;
         let highwayCanvas = null;
 
         // ── Listener refs (per-instance so detach matches attach) ──
@@ -1557,22 +1668,6 @@
                 canvas.height = pxH;
             }
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-            // Chord canvas may not exist (mountCanvas could fail
-            // to allocate it on tight DOM), or its context could
-            // have been refused. The note canvas handles the bulk
-            // of the rendering on its own; chord boxes are an
-            // additive feature.
-            if (chordCanvas && chordCtx) {
-                const cRect = chordCanvas.getBoundingClientRect();
-                const cPxW = Math.max(1, Math.floor(cRect.width * dpr));
-                const cPxH = Math.max(1, Math.floor(cRect.height * dpr));
-                if (chordCanvas.width !== cPxW || chordCanvas.height !== cPxH) {
-                    chordCanvas.width = cPxW;
-                    chordCanvas.height = cPxH;
-                }
-                chordCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            }
         }
 
         // Returns true when highwayCanvas is in the document layout
@@ -1676,10 +1771,10 @@
             // our own draw(). So #highway stays in layout, we overlay
             // it, and sizeCanvasToBox() anchors our box to it.
             // The opaque background hides whatever #highway shows behind
-            // the inter-canvas gap / side padding. Internally still a
-            // vertical flex column: chord canvas on top (~35%), note
-            // canvas below (~65%) — alleexx's chord-box layout from
-            // renanboni's fork.
+            // the side padding. A single full-height note canvas fills
+            // the wrap; the current chord's fingering is painted as a
+            // compact box in the top-left corner (the 3D Highway's
+            // drawChordDiagram), overlaid on the tab.
             wrap.style.cssText = [
                 'position:absolute',
                 'top:0',
@@ -1696,31 +1791,13 @@
                 'pointer-events:none',
             ].join(';');
 
-            // Chord canvas — top of the wrap, holds chord-box
-            // diagrams scrolling left as time progresses. Created
-            // BEFORE the note canvas so DOM order matches visual
-            // order for accessibility / devtools.
-            chordCanvas = document.createElement('canvas');
-            chordCanvas.id = 'jumpingtab-chord-canvas-' + _instanceId;
-            chordCanvas.className = 'jumpingtab-chord-canvas';
-            chordCanvas.dataset.jumpingtabInstance = String(_instanceId);
-            chordCanvas.style.cssText = [
-                'width:100%',
-                'flex:0.35',
-                'min-height:0',
-                'display:block',
-                'background:#090f18',
-                'border-radius:10px',
-                'box-shadow:0 8px 24px rgba(0,0,0,0.3)',
-            ].join(';');
-
             canvas = document.createElement('canvas');
             canvas.id = 'jumpingtab-canvas-' + _instanceId;
             canvas.className = 'jumpingtab-canvas';
             canvas.dataset.jumpingtabInstance = String(_instanceId);
             canvas.style.cssText = [
                 'width:100%',
-                'flex:0.65',
+                'flex:1',
                 'min-height:0',
                 'display:block',
                 'background:#0f1420',
@@ -1728,7 +1805,6 @@
                 'box-shadow:0 8px 24px rgba(0,0,0,0.4)',
             ].join(';');
 
-            wrap.appendChild(chordCanvas);
             wrap.appendChild(canvas);
             providedHighwayCanvas.insertAdjacentElement('afterend', wrap);
             ctx = canvas.getContext('2d');
@@ -1745,16 +1821,7 @@
                 wrap.remove();
                 wrap = null;
                 canvas = null;
-                chordCanvas = null;
                 return false;
-            }
-            // The chord ctx is best-effort. If it fails we still want
-            // the note canvas working — chord boxes are additive.
-            chordCtx = chordCanvas.getContext('2d');
-            if (!chordCtx) {
-                console.warn('[jumpingtab] mountCanvas: chord getContext("2d") returned null; chord boxes disabled for this lifetime');
-                chordCanvas.remove();
-                chordCanvas = null;
             }
 
             highwayCanvas = providedHighwayCanvas;
@@ -1770,8 +1837,6 @@
                 wrap = null;
                 canvas = null;
                 ctx = null;
-                chordCanvas = null;
-                chordCtx = null;
             }
             // #highway was never hidden (we overlay it, not replace it),
             // so there's nothing to restore — just drop the reference.
@@ -1843,10 +1908,6 @@
                     // will paint with the loaded font anyway.
                     if (_hasDrawnFrame) {
                         drawFrame(ctx, state, canvas, _lastNow);
-                        if (chordCtx && chordCanvas) {
-                            drawChordBoxes(chordCtx, chordCanvas, state,
-                                resolveStringCount(state), _lastNow);
-                        }
                     }
                 });
             },
@@ -1895,15 +1956,14 @@
                 // song's notes otherwise.
                 state.beats = Array.isArray(bundle.beats) ? bundle.beats : [];
                 state.sections = Array.isArray(bundle.sections) ? bundle.sections : [];
-                // Chord events + templates for the chord-box
-                // renderer. The note-tab renderer doesn't need
+                // Chord events + templates for the top-left chord-
+                // diagram box. The note-tab renderer doesn't need
                 // these — _rebuildChart flattens chord notes into
-                // state.notes — but drawChordBoxes reads the raw
-                // chord events to position one diagram per chord
-                // change. Always overwrite (matches the
-                // beats/sections pattern above) so a song-change
-                // loading window doesn't leave the previous song's
-                // chord shapes scrolling behind the new chart.
+                // state.notes — but the box reads the raw chord
+                // events to find the current chord. Always overwrite
+                // (matches the beats/sections pattern above) so a
+                // song-change loading window doesn't leave the
+                // previous song's chord shape in the box.
                 state.chords = Array.isArray(bundle.chords) ? bundle.chords : [];
                 state.chordTemplates = Array.isArray(bundle.chordTemplates)
                     ? bundle.chordTemplates : [];
@@ -1924,19 +1984,6 @@
                 _hasDrawnFrame = true;
                 _lastNow = now;
                 drawFrame(ctx, state, canvas, now);
-                // Chord-box rendering on the secondary canvas
-                // (alleexx's contribution from renanboni's fork).
-                // Draw AFTER the note frame so on the rare visual
-                // overlap (compositor or stacking quirks) the
-                // chord boxes are last-painted, but they're on a
-                // separate DOM node so this is mostly stylistic.
-                // Best-effort: chordCanvas / chordCtx may be null
-                // if mountCanvas couldn't allocate the secondary
-                // context — drawChordBoxes guards on that.
-                if (chordCtx && chordCanvas) {
-                    drawChordBoxes(chordCtx, chordCanvas, state,
-                        resolveStringCount(state), now);
-                }
             },
             resize(/* w, h */) {
                 // Size from the canvas's own bounding rect — the w/h

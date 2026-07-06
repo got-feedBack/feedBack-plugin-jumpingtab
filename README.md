@@ -1,13 +1,13 @@
 # Jumping Tab
 
-A [slopsmith](https://github.com/got-feedback/feedback) plugin that adds a Yousician-style 2D horizontal tab view to the player. Notes flow right-to-left toward a glowing hit line, trajectory arcs connect consecutive monophonic notes, a glowing ball visibly hops along those arcs, and chord-shape diagrams scroll along a secondary canvas above the tab.
+A [slopsmith](https://github.com/got-feedback/feedback) plugin that adds a Yousician-style 2D horizontal tab view to the player. Notes flow right-to-left toward a glowing hit line, trajectory arcs connect consecutive monophonic notes, a glowing ball visibly hops along those arcs, and the current chord's fingering is shown in a compact diagram box pinned to the top-left corner (the same box the 3D Highway draws). The tab fills the full player height.
 
 ![Chord boxes + tab view](screenshots/jumpingtab_w_chords.png)
 
 ## Features
 
 - **2D horizontal tab** — notes scroll right→left on color-coded string lines, player view (low E on top), the chart-aligned color palette.
-- **Chord-shape diagrams** — a secondary canvas above the tab renders the active chord shape (open / muted / fingered strings, fret numbers, finger numbers, position label) and queues upcoming distinct chord shapes scrolling toward the hit line. Distinguishes consecutive identical chords so a held shape doesn't draw N times. *(Originally contributed by [alleexx](https://github.com/alleexx) on the [renanboni fork](https://github.com/renanboni/slopsmith-plugin-jumpingtab).)*
+- **Top-left chord box** — the current chord's fingering diagram (open `○` / muted `×` / fingered dots, barre bracket, fret-position label, gold chord name) is pinned to the top-left corner, overlaid on the full-height tab. This is the 3D Highway's `drawChordDiagram` ported verbatim so the box reads identically in both views. The current chord is the most recent chord event at or before the playhead; unnamed and all-muted templates are skipped. *(Earlier versions rendered a full-width scrolling band of chord shapes above the tab — [alleexx](https://github.com/alleexx)'s contribution on the [renanboni fork](https://github.com/renanboni/slopsmith-plugin-jumpingtab) — which was replaced by this compact corner box so the tab can use the full height.)*
 - **Trajectory arcs** — dashed cyan curves connect every consecutive note group (chords included) so you can see the melodic contour.
 - **Hopping ball** — a glowing ball traces the melody and squashes when it crosses the hit line.
 - **Technique rendering** — hammer-ons, pull-offs, and slides are drawn as fused capsules with labeled arcs above them; bends get amber arrows with conventional labels (`½`, `full`, `1½`, `2`).
