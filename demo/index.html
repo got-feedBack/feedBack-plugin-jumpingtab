@@ -117,6 +117,13 @@
     notes.push({ t: base + 7.0, s: 2, f: 9, sus: 0.8, ho: 0, po: 0, sl: -1, bn: 0 });
     notes.push({ t: base + 7.0, s: 3, f: 9, sus: 0.8, ho: 0, po: 0, sl: -1, bn: 0 });
     pushNotes(notes);
+    // A named chord so the top-left chord-diagram box renders. frets are
+    // low-E-first (frets[0]=low E), matching the sloppak bundle order —
+    // Am open shape (x02210) = [lowE muted, A open, D2, G2, B1, high-e open].
+    demo.setState({
+      chords: [{ t: base, id: 0 }],
+      chordTemplates: [{ name: 'Am', displayName: 'Am', frets: [-1, 0, 2, 2, 1, 0], fingers: [-1, 0, 2, 3, 1, 0] }],
+    });
     demo.drawFrame(base + 2.2);
   }
 
