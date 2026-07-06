@@ -1114,8 +1114,9 @@
     // 6 strings with the upper 2 empty. The new server-side
     // signal handles all sources uniformly.
     //
-    // Used by drawFrame for both the tab layout and the top-left
-    // chord-diagram box so the two never drift on string count.
+    // Used by drawFrame for the tab-lane layout. (The chord-diagram box
+    // sizes itself from the chord template's own frets.length instead, so
+    // a short/long template can't index past its frets array.)
     function resolveStringCount(state) {
         return (typeof state.stringCount === 'number' && state.stringCount > 0)
             ? state.stringCount
@@ -1177,7 +1178,12 @@
         // Minimum column span required for PATH B (bracket extension / detection).
         const MIN_BARRE_SPAN = Math.min(COLS - 1, 4);
         // Maps diagram column index → chord-template frets-array index.
-        // Templates are high-e-first: frets[0]=high e, frets[COLS-1]=low E.
+        // FeedBack bundle templates are low-E-first: frets[0]=low E renders
+        // in column 0 (leftmost) when inverted=false, i.e. the standard
+        // chord-chart orientation. (The 3D Highway's original copy of this
+        // function comments this the other way around, but consumes the
+        // same bundle order with the same inverted flag, so both render
+        // identically — verified against a named E5 template.)
         const getStrIdx = col => inverted ? (COLS - 1 - col) : col;
         const sizeF  = DIAG_SIZE_MIN + (DIAG_SIZE_MAX - DIAG_SIZE_MIN) * sizeSlider;
 
@@ -1434,11 +1440,16 @@
         if (!state.ready) return;
         if (!state.chords || !state.chords.length) return;
         if (!state.chordTemplates || !state.chordTemplates.length) return;
-        let cur = null;
-        for (const ch of state.chords) {
-            if (ch.t <= now) cur = ch; else break;
+        // Binary search for the last chord event with t <= now (state.chords
+        // is core-sorted by t) — O(log n), vs an O(n) scan from the start
+        // every frame on long charts.
+        let lo = 0, hi = state.chords.length;   // lo lands on first index with t > now
+        while (lo < hi) {
+            const m = (lo + hi) >> 1;
+            if (state.chords[m].t <= now) lo = m + 1; else hi = m;
         }
-        if (!cur) return;
+        if (lo === 0) return;                    // no chord at/before now
+        const cur = state.chords[lo - 1];
         const tmpl = state.chordTemplates[cur.id];
         if (!tmpl || !Array.isArray(tmpl.frets) || !tmpl.frets.length) return;
         const name = chordTemplateLabel(tmpl);
@@ -1782,10 +1793,8 @@
                 'z-index:2',
                 'min-height:0',
                 'display:flex',
-                'flex-direction:column',
+                'flex-direction:column',   // main axis = vertical so the note canvas's flex:1 fills height
                 'align-items:stretch',
-                'justify-content:center',
-                'gap:6px',
                 'padding:0 24px',
                 'background:#050508',
                 'pointer-events:none',
